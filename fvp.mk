@@ -33,6 +33,10 @@ BR2_PACKAGE_LINUX_FTPM_MOD_EXT_PATH ?= $(LINUX_PATH)
 ################################################################################
 MEASURED_BOOT		?= n
 TF_A_PATH		?= $(ROOT)/trusted-firmware-a
+SPMC_MANIFEST_DTS_ARG	?= plat/arm/board/fvp/fdts/fvp_spmc_optee_sp_manifest.dts
+HAFNIUM_PATH		?= $(ROOT)/hafnium
+FVP_SECURE_HAFNIUM_BIN	?= $(HAFNIUM_PATH)/out/reference/secure_aem_v8a_fvp_clang/hafnium.bin
+
 ifeq ($(MEASURED_BOOT),y)
 # Prefer release mode for TF-A if using Measured Boot, debug may exhaust memory.
 TF_A_BUILD		?= release
@@ -73,7 +77,7 @@ endif
 ################################################################################
 # Targets
 ################################################################################
-all: arm-tf optee-os ftpm boot-img linux edk2
+all: arm-tf optee-os ftpm boot-img linux edk2 hafnium
 clean: arm-tf-clean boot-img-clean buildroot-clean edk2-clean grub-clean \
 	ftpm-clean optee-os-clean
 
@@ -86,20 +90,29 @@ $(OUT_PATH):
 	mkdir -p $@
 
 ################################################################################
+# Hafnium
+################################################################################
+hafnium:
+	$(MAKE) -C $(HAFNIUM_PATH) all
+
+################################################################################
 # ARM Trusted Firmware
 ################################################################################
 TF_A_EXPORTS ?= \
 	CROSS_COMPILE="$(CCACHE)$(AARCH64_CROSS_COMPILE)"
 
 TF_A_FLAGS ?= \
-	BL32=$(OPTEE_OS_HEADER_V2_BIN) \
-	BL32_EXTRA1=$(OPTEE_OS_PAGER_V2_BIN) \
-	BL32_EXTRA2=$(OPTEE_OS_PAGEABLE_V2_BIN) \
+	BL32=$(FVP_SECURE_HAFNIUM_BIN) \
 	BL33=$(EDK2_BIN) \
-	ARM_TSP_RAM_LOCATION=tdram \
 	FVP_USE_GIC_DRIVER=FVP_GICV3 \
 	PLAT=fvp \
-	SPD=opteed
+	SPD=spmd \
+	CTX_INCLUDE_EL2_REGS=1 \
+	ARM_ARCH_MINOR=5 \
+	CTX_INCLUDE_PAUTH_REGS=1 \
+	BRANCH_PROTECTION=1 \
+	SP_LAYOUT_FILE=$(OPTEE_OS_SP_LAYOUT_ARG) \
+	ARM_SPMC_MANIFEST_DTS=$(SPMC_MANIFEST_DTS_ARG)
 
 ifneq ($(MEASURED_BOOT),y)
 	TF_A_FLAGS += DEBUG=$(DEBUG)
@@ -115,7 +128,7 @@ else
 		      EVENT_LOG_LEVEL=20
 endif
 
-arm-tf: optee-os edk2
+arm-tf: optee-os edk2 hafnium
 	$(TF_A_EXPORTS) $(MAKE) -C $(TF_A_PATH) $(TF_A_FLAGS) all fip
 
 arm-tf-clean:
@@ -173,7 +186,7 @@ linux-cleaner: linux-cleaner-common
 ################################################################################
 # OP-TEE
 ################################################################################
-OPTEE_OS_COMMON_FLAGS += CFG_ARM_GICV3=y
+#OPTEE_OS_COMMON_FLAGS += CFG_ARM_GICV3=y
 
 ifeq ($(MEASURED_BOOT),y)
 	OPTEE_OS_COMMON_FLAGS += CFG_DT=y CFG_CORE_TPM_EVENT_LOG=y

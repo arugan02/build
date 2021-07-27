@@ -161,6 +161,7 @@ OPTEE_OS_BIN		    ?= $(OPTEE_OS_PATH)/out/arm/core/tee.bin
 OPTEE_OS_HEADER_V2_BIN	    ?= $(OPTEE_OS_PATH)/out/arm/core/tee-header_v2.bin
 OPTEE_OS_PAGER_V2_BIN	    ?= $(OPTEE_OS_PATH)/out/arm/core/tee-pager_v2.bin
 OPTEE_OS_PAGEABLE_V2_BIN    ?= $(OPTEE_OS_PATH)/out/arm/core/tee-pageable_v2.bin
+OPTEE_OS_SP_LAYOUT_ARG      ?= $(OPTEE_OS_PATH)/out/arm/core/sp_layout.json
 ifeq ($(COMPILE_S_USER),)
 $(error COMPILE_S_USER must be defined as COMPILE_S_KERNEL=$(COMPILE_S_KERNEL) is defined)
 endif
@@ -378,6 +379,8 @@ $(LINUX_PATH)/.config: $(LINUX_DEFCONFIG_COMMON_FILES)
 		ARCH=$(LINUX_DEFCONFIG_COMMON_ARCH) \
 		scripts/kconfig/merge_config.sh $(LINUX_DEFCONFIG_COMMON_FILES) \
 			$(LINUX_DEFCONFIG_BENCH)
+	cd $(LINUX_PATH) && \
+		echo "CONFIG_ARM64_BTI_KERNEL=y" >> .config
 
 .PHONY: linux-defconfig-clean-common
 linux-defconfig-clean-common:
@@ -492,11 +495,16 @@ OPTEE_OS_COMMON_FLAGS ?= \
 	CROSS_COMPILE_ta_arm32="$(CCACHE)$(AARCH32_CROSS_COMPILE)" \
 	CFG_TEE_CORE_LOG_LEVEL=$(CFG_TEE_CORE_LOG_LEVEL) \
 	DEBUG=$(DEBUG) \
-	CFG_TEE_BENCHMARK=$(CFG_TEE_BENCHMARK)
+	CFG_TEE_BENCHMARK=$(CFG_TEE_BENCHMARK) \
+	CFG_CORE_SEL2_SPMC=y
 
 .PHONY: optee-os-common
 optee-os-common:
 	$(MAKE) -C $(OPTEE_OS_PATH) $(OPTEE_OS_COMMON_FLAGS)
+	@echo "  CP      $(OPTEE_OS_PATH)/core/arch/arm/plat-vexpress/sp_layout.json"
+	cp $(OPTEE_OS_PATH)/core/arch/arm/plat-vexpress/sp_layout.json $(OPTEE_OS_PATH)/out/arm/core/
+	@echo "  CP      $(OPTEE_OS_PATH)/core/arch/arm/plat-vexpress/fdts/optee_sp_manifest.dts"
+	cp $(OPTEE_OS_PATH)/core/arch/arm/plat-vexpress/fdts/optee_sp_manifest.dts $(OPTEE_OS_PATH)/out/arm/core/
 
 .PHONY: optee-os-clean-common
 optee-os-clean-common:
