@@ -56,9 +56,9 @@ else
 EDK2_BUILD		?= RELEASE
 endif
 EDK2_BIN		?= $(EDK2_PLATFORMS_PATH)/Build/ArmVExpress-FVP-AArch64/$(EDK2_BUILD)_$(EDK2_TOOLCHAIN)/FV/FVP_$(EDK2_ARCH)_EFI.fd
-FOUNDATION_PATH		?= $(ROOT)/Foundation_Platformpkg
-ifeq ($(wildcard $(FOUNDATION_PATH)),)
-$(error $(FOUNDATION_PATH) does not exist)
+BASE_FVP_PATH		?= $(ROOT)/Base_RevC_AEMvA_pkg
+ifeq ($(wildcard $(BASE_FVP_PATH)),)
+$(error $(BASE_FVP_PATH) does not exist)
 endif
 GRUB_PATH		?= $(ROOT)/grub
 GRUB_CONFIG_PATH	?= $(BUILD_PATH)/fvp/grub
@@ -112,7 +112,8 @@ TF_A_FLAGS ?= \
 	CTX_INCLUDE_PAUTH_REGS=1 \
 	BRANCH_PROTECTION=1 \
 	SP_LAYOUT_FILE=$(OPTEE_OS_SP_LAYOUT_ARG) \
-	ARM_SPMC_MANIFEST_DTS=$(SPMC_MANIFEST_DTS_ARG)
+	ARM_SPMC_MANIFEST_DTS=$(SPMC_MANIFEST_DTS_ARG) \
+	FVP_DT_PREFIX=fvp-base-gicv3-psci-1t
 
 ifneq ($(MEASURED_BOOT),y)
 	TF_A_FLAGS += DEBUG=$(DEBUG)
@@ -251,7 +252,7 @@ boot-img: grub buildroot
 	rm -f $(BOOT_IMG)
 	mformat -i $(BOOT_IMG) -n 64 -h 255 -T 131072 -v "BOOT IMG" -C ::
 	mcopy -i $(BOOT_IMG) $(LINUX_PATH)/arch/arm64/boot/Image ::
-	mcopy -i $(BOOT_IMG) $(LINUX_PATH)/arch/arm64/boot/dts/arm/foundation-v8-gicv3-psci.dtb ::
+	mcopy -i $(BOOT_IMG) $(TF_A_PATH)/build/fvp/$(TF_A_BUILD)/fdts/fvp-base-gicv3-psci-1t.dtb ::
 	mmd -i $(BOOT_IMG) ::/EFI
 	mmd -i $(BOOT_IMG) ::/EFI/BOOT
 	mcopy -i $(BOOT_IMG) $(ROOT)/out-br/images/rootfs.cpio.gz ::/initrd.img
@@ -270,13 +271,50 @@ run: all
 	$(MAKE) run-only
 
 run-only:
-	@cd $(FOUNDATION_PATH); \
-	$(FOUNDATION_PATH)/models/Linux64_GCC-6.4/Foundation_Platform \
-	--arm-v8.0 \
-	--cores=4 \
-	--secure-memory \
-	--visualization \
-	--gicv3 \
-	--data="$(TF_A_PATH)/build/fvp/$(TF_A_BUILD)/bl1.bin"@0x0 \
-	--data="$(TF_A_PATH)/build/fvp/$(TF_A_BUILD)/fip.bin"@0x8000000 \
-	--block-device=$(BOOT_IMG)
+	@cd $(BASE_FVP_PATH); \
+	$(BASE_FVP_PATH)/models/Linux64_GCC-6.4/FVP_Base_RevC-2xAEMvA \
+	-C pctl.startup=0.0.0.0 \
+	-C cluster0.NUM_CORES=4 \
+	-C cluster1.NUM_CORES=4 \
+	\
+	-C bp.secureflashloader.fname=$(TF_A_PATH)/build/fvp/$(TF_A_BUILD)/bl1.bin \
+	-C bp.flashloader0.fname=$(TF_A_PATH)/build/fvp/$(TF_A_BUILD)/fip.bin \
+	-C bp.virtioblockdevice.image_path=$(BOOT_IMG) \
+	\
+	-C cache_state_modelled=1 \
+	-C cluster0.has_arm_v8-5=1 \
+	-C cluster0.has_branch_target_exception=1 \
+	-C cluster0.restriction_on_speculative_execution=2 \
+	-C cluster1.has_arm_v8-5=1 \
+	-C cluster1.has_branch_target_exception=1 \
+	-C cluster1.restriction_on_speculative_execution=2 \
+	-C pci.pci_smmuv3.mmu.SMMU_AIDR=2 \
+	-C pci.pci_smmuv3.mmu.SMMU_IDR0=0x0046123B \
+	-C pci.pci_smmuv3.mmu.SMMU_IDR1=0x00600002 \
+	-C pci.pci_smmuv3.mmu.SMMU_IDR3=0x1714 \
+	-C pci.pci_smmuv3.mmu.SMMU_IDR5=0xFFFF0472 \
+	-C pci.pci_smmuv3.mmu.SMMU_S_IDR1=0xA0000002 \
+	-C pci.pci_smmuv3.mmu.SMMU_S_IDR2=0 \
+	-C pci.pci_smmuv3.mmu.SMMU_S_IDR3=0 \
+	-C pci.pci_smmuv3.mmu.all_error_messages_through_trace=1 \
+	-C pci.smmulogger.trace_debug=1 \
+	-C pci.smmulogger.trace_snoops=1 \
+	-C pci.tbu0_pre_smmu_logger.trace_debug=1 \
+	-C pci.tbu0_pre_smmu_logger.trace_snoops=1 \
+	\
+	-C bp.pl011_uart0.untimed_fifos=1 \
+	-C bp.pl011_uart0.unbuffered_output=1 \
+	-C bp.pl011_uart0.out_file=$(ROOT)/fvp_uart0.log \
+	\
+	-C bp.pl011_uart1.untimed_fifos=1 \
+	-C bp.pl011_uart1.unbuffered_output=1 \
+	-C bp.pl011_uart1.out_file=$(ROOT)/fvp_uart1.log \
+	\
+	-C bp.pl011_uart2.untimed_fifos=1 \
+	-C bp.pl011_uart2.unbuffered_output=1 \
+	-C bp.pl011_uart2.out_file=$(ROOT)/fvp_uart2.log \
+	\
+	-C bp.vis.rate_limit-enable=false \
+	-C bp.ve_sysregs.mmbSiteDefault=0 \
+	-C bp.ve_sysregs.exit_on_shutdown=1 \
+	-Q 1000
